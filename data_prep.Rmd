@@ -1,0 +1,206 @@
+---
+title: "Data prep for Sóskuthy & Stuart-Smith 2018"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+## Vowel data
+
+Let's import the data and relevant libraries first.
+
+```{r}
+library(tidyverse)
+library(readr)
+library(dplyr)
+library(stringr)
+library(lme4)
+library(phonTools)
+
+
+vowels <- c("boot", "cat", "cot", "face", "fleece", "goat", "strut")
+files <- paste("data/midpoint_", toupper(vowels), ".csv", sep="")
+
+for (f in 1:length(files)) {
+  assign(vowels[f], read.csv(files[f]))
+  assign(vowels[f], cbind(get(vowels[f]), data.frame(vowel=vowels[f])))
+}
+```
+
+```{r}
+# check colnames: print differences for each data frame
+
+for (v1 in vowels) {
+  for (v2 in vowels) {
+    d <- setdiff(colnames(get(v1)), colnames(get(v2)))
+    if (length(d) > 0) {
+      cat(v1, "-", v2, ": ", paste(d, collapse=", "), "\n", sep="")
+    }
+  }
+}
+
+# identical, but no URL in fleece;
+# face$Target.segments is all 1's (because of the celex transctiptions), 
+# so should be converted to factor first;
+# same for goat$Target.segments (all 5's)
+
+face$Target.segments <- factor(face$Target.segments)
+goat$Target.segments <- factor(goat$Target.segments)
+
+# make list of data sets
+all.list <- lapply(as.list(vowels), get, mode="list") # mode = "list" needed to make sure "cat" doesn't return function
+# let's bind them together using bind_rows
+all.vs <- bind_rows(all.list) # some columns coerced to character - should be OK
+
+# fix "mother'd"
+all.vs$Target.stress[all.vs$Target.stress=="'mVT"] <- "'mVD"
+```
+
+Now we'll get the following / preceding segment. These will be used as random intercepts in the model.
+
+```{r}
+
+# list of target segments (only used for extracting environment)
+targets <- c(unique(all.vs$Target.segments), "U") # U (which doesn't contrast with u in Scottish varieties) missing from Target.segments but it's there in transcriptions
+length(grep("[']", all.vs$Target.stress)) # all Target.stress values have '
+
+# complicated regexp to get location of target segment in stressed syllable
+# 2 actually means initial, since it's preceded by stress mark, so -1
+segment.loc <- attr(regexpr(paste("'.*?([", paste(targets, collapse=""), "])", sep=""), all.vs$Target.stress, perl=T), "capture.start")[,1] - 1
+
+# stringr to get location of target syllable in word
+syllable.loc <- str_locate(all.vs$Target.CELEX.phonemes, fixed(str_sub(all.vs$Target.stress, 2, -1)))[,1] - 1
+
+# so preceding is segment.loc + syllable.loc - 1, following is segment.loc + syllable.loc + 1
+all.vs$preceding <- str_sub(all.vs$Target.CELEX.phonemes, segment.loc + syllable.loc - 1, segment.loc + syllable.loc - 1)
+all.vs$following <- str_sub(all.vs$Target.CELEX.phonemes, segment.loc + syllable.loc + 1, segment.loc + syllable.loc + 1)
+```
+
+Let's create decade predictor.
+
+```{r}
+all.vs$decade <- str_sub(all.vs$Speaker, 1, 2)
+all.vs$decade.fact <- factor(all.vs$decade, levels=c("70", "80", "90", "00")) # mind the ordering!
+```
+
+Vowel duration.
+
+```{r}
+all.vs$duration <- all.vs$Target.segments.end - all.vs$Target.segments.start
+```
+
+Let's exclude function words / words that are problematic for some reason.
+
+```{r}
+exclude.regs <- c(".*('ve|'d|'ll|~|'s|'t)","would","could","wouldnae","ye've","used","aboot","couldnae","oot","doon","should","that","have","has","what","because","not","says","st","don't","those","won't","just","wasnae","doesnae")
+for (reg in exclude.regs) {
+  all.vs <- filter(all.vs, !grepl(paste0("^", reg, "$"), Target.orthography))
+}
+```
+
+Moving on to outliers & vowels with formant values that are fall outside reasonable bounds established on the basis of Hillenbrand et al. (1995).
+
+```{r}
+data(h95)
+
+# ggplot(h95, aes(x=f1)) + facet_wrap(~type) + geom_density()
+# ggplot(h95, aes(x=f2)) + facet_wrap(~type) + geom_density()
+# ggplot(h95, aes(x=f3)) + facet_wrap(~type) + geom_density()
+  
+f_ranges <- h95 %>%
+  group_by(type) %>%
+  summarize(f1_lower=quantile(f1, 0.01),
+            f1_upper=quantile(f1, 0.99),
+            f2_lower=quantile(f2, 0.01),
+            f2_upper=quantile(f2, 0.99),
+            f3_lower=quantile(f3, 0.01),
+            f3_upper=quantile(f3, 0.99)) %>%
+  ungroup() %>%
+  mutate(gender=as.character(recode(type, m="M", w="F"))) %>%
+  dplyr::select(-type)
+
+not_outlier <- function (x) {
+  x > (quantile(x, 0.25) - 1.5*IQR(x)) & x < (quantile(x, 0.75) + 1.5*IQR(x))
+}
+
+all.vs_filtered <- all.vs %>%
+  mutate(gender=as.character(gender)) %>%
+  # filtering based on reasonable ranges / sex
+  inner_join(f_ranges, by="gender") %>%
+  filter(!is.na(F1.time_0.5) & !is.na(F2.time_0.5) & !is.na(F3.time_0.5)) %>%
+  # marking clear f1/f2 outliers for each speaker as NAs
+  group_by(Speaker, vowel) %>%
+  mutate(f1=ifelse(F1.time_0.5 > f1_lower & F1.time_0.5 < f1_upper & not_outlier(F1.time_0.5), F1.time_0.5, NA),
+         f2=ifelse(F2.time_0.5 > f2_lower & F2.time_0.5 < f2_upper & not_outlier(F2.time_0.5), F2.time_0.5, NA),
+         f3=ifelse(F3.time_0.5 > f3_lower & F3.time_0.5 < f3_upper & not_outlier(F3.time_0.5), F3.time_0.5, NA)) %>%
+  ungroup() %>%
+  filter(!is.na(f1), !is.na(f2), !is.na(f3))
+```
+
+Fixing column labels, removing extraneous columns.
+
+```{r}
+all.vs_filtered <- all.vs_filtered %>%
+  select(-SearchName, -Number, -Transcript, -Corpus, -Line, -LineEnd, -MatchId,
+         -TargetId, -URL, -Text, -Target.stress.start, -Target.stress.end,
+         -Target.transcript, -Target.transcript.end, -Target.transcript.start,
+         -matches("_lower"), -matches("_upper"), -matches("[.]time_"), -Error)
+```
+
+And now save the final outcome.
+
+```{r}
+write_csv(all.vs_filtered, "data/vowels.csv")
+```
+
+We'll extract avg F2 and F3 values by speaker for use in regression models fitted to /r/. It would be useful to control for various things like vowel & context, so we'll fit a random effects model, with random intercepts by TargetOrthography, Vowel and Speaker. We'll compare the results with averages (mainly to show that the resulting values are *very* similar to the raw averages).
+
+Calculate the averages first:
+
+```{r}
+# getting the averages
+avg.f1 <- aggregate(F1.time_0.5 ~ Speaker, all.vs, mean)
+avg.f2 <- aggregate(F2.time_0.5 ~ Speaker, all.vs, mean)
+avg.f3 <- aggregate(F3.time_0.5 ~ Speaker, all.vs, mean)
+
+# merging into a single data set + tidying
+avg.fs <- merge(merge(avg.f1, avg.f2, by="Speaker"), avg.f3, by="Speaker")
+avg.fs <- rename(avg.fs, speaker=Speaker, avg.f1=F1.time_0.5, avg.f2=F2.time_0.5, avg.f3=F3.time_0.5)
+avg.fs$speaker <- as.character(avg.fs$speaker)
+avg.fs$speaker[avg.fs$speaker=="80-O-f02-clbk"] <- "80-O-f02"
+```
+
+And now estimates from random models (i.e. controlling for speakers overusing specific vowels / words):
+
+```{r}
+rand.fs <- data.frame(speaker=as.character(unique(all.vs$Speaker)), stringsAsFactors = F)
+for (f in 1:3) {
+  rand.formula <- as.formula(paste0("F", f, ".time_0.5 ~ (1 | Speaker) + (1 | Target.orthography) + (1 | vowel)"))
+  rand.model <- lmer(rand.formula, data=all.vs)
+  per.speaker.intercepts <- ranef(rand.model)$Speaker
+  colnames(per.speaker.intercepts) <- paste0("rand.f", f)
+  per.speaker.intercepts$speaker <- rownames(per.speaker.intercepts)
+  rand.fs <- merge(rand.fs, per.speaker.intercepts, by="speaker", stringsAsFactors=F)
+}
+rand.fs$speaker[rand.fs$speaker=="80-O-f02-clbk"] <- "80-O-f02"
+```
+
+And now merging the two sets of estimates and comparing them.
+
+```{r}
+aggr.fs <- merge(avg.fs, rand.fs, by="speaker")
+
+plot(aggr.fs$avg.f1, aggr.fs$rand.f1)
+plot(aggr.fs$avg.f2, aggr.fs$rand.f2)
+plot(aggr.fs$avg.f3, aggr.fs$rand.f3) 
+```
+
+## /r/
+
+```{r}
+R <- readRDS("data/R_fixed.rds")
+R <- merge(R, aggr.fs, by="speaker")
+R$freq.log <- log(R$freq+1)
+
+write_csv(R, "data/R.csv")
+```
