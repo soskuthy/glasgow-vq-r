@@ -95,9 +95,9 @@ R.vq <- read_csv("data/auditoryvq.csv") %>%
 
 ```
 
-## 4.1: Changes to coda /r/ -- Take 1: Acoustic results
+# 4.1: Changes to coda /r/ -- Take 1: Acoustic results
 
-# Males without baseline control
+## Males without baseline control
 
 Analysing males first, not controlling for baseline F3. Fitting three models:
 
@@ -368,7 +368,7 @@ ggplot(R.m.plot, aes(x=measurement.no, y=fit, group=decade, col=decade, lty=deca
 
 
 
-# Females without baseline control
+## Females without baseline control
 
 Analysing females, not controlling for baseline F3. Fitting three models:
 
@@ -637,7 +637,7 @@ ggplot(R.f.plot, aes(x=measurement.no, y=fit, group=decade, col=decade, lty=deca
 ```
 
 
-## 4.2: Changes to coda /r/ -- Take 1: Auditory results
+# 4.2: Changes to coda /r/ -- Take 1: Auditory results
 
 First, we fit our model of dynamic F3 measurements as a function of /r/-realisation, whose predictions are plotted in figure 3.
 
@@ -894,7 +894,7 @@ anova(r.pres.mod, r.pres.mod.min.decade,test="Chisq")
 ```
 
 
-## 5.1 Acoustic results for voice quality
+# 5.1 Acoustic results for voice quality
 
 First some plots showing the raw data for F1/F2/F3 broken down by vowels (these are especially useful as they show that all vowels show a rise in F39.
 
@@ -910,7 +910,7 @@ ggplot(vowels, aes(x=decade.fact, y=f3)) +
   geom_boxplot()
 ```
 
-# Modelling F1/F2/F3
+## Modelling F1/F2/F3
 
 We'll fit linear mixed models to F1/F2/F3, running the models in separate R-markdown chunks.
 
@@ -1120,7 +1120,7 @@ ggplot(new.dat, aes(x=decade.fact, y=f3, col=gender)) +
 ```
 
 
-## 5.2 Auditory results for voice quality
+# 5.2 Auditory results for voice quality
 
 We first fit a model that shows how F3 correlates with different auditory measures
 
@@ -1180,9 +1180,9 @@ ggplot(R.vq.ordered, aes(x=factor(decade), y=tongue.body.height)) +
 # ggsave("graphs/tongue_body_height.pdf", width=6, height=4)
 ```
 
-## Changes to Coda R: take 2 -- acoustic analysis
+# Changes to Coda R: take 2 -- acoustic analysis
 
-# Males, take 2 (with baseline control)
+## Males, take 2 (with baseline control)
 
 Same modelling strategy as above.
 
@@ -1312,7 +1312,7 @@ ggplot(R.m.baseline.plot, aes(x=measurement.no, y=fit, group=decade, col=decade,
 #ggsave("graphs/r_male_f3_change_control.pdf", width=8, height=4)
 ```
 
-# Females, take 2 (with baseline control)
+## Females, take 2 (with baseline control)
 
 Same modelling strategy as above.
 
